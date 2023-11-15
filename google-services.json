@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "406087751932",
+    "project_id": "notebuddy-c0b90",
+    "storage_bucket": "notebuddy-c0b90.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:406087751932:android:930ea6dbf19e5753161f79",
+        "android_client_info": {
+          "package_name": "com.anonymous.NoteBuddy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC5ZeqtCf3gUUSE2BdybDAle8I1-5x92Ak"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
