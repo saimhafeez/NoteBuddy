@@ -149,8 +149,6 @@ function AddNewTask({ data }) {
                     }}
                     onPress={() => {
 
-
-
                         setTask(prevState => ({
                             ...prevState,
                             subTasks: { ...prevState.subTasks, [uuid.v4()]: '' }
