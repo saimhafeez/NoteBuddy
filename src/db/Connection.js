@@ -8,6 +8,7 @@ const db = SQLite.openDatabase('noteBuddy.db')
 // Tables
 export const todo = 'todo';
 export const todo_categories = 'todo_categories';
+export const notes = 'notes';
 
 
 db.transaction(tx => {
@@ -52,6 +53,11 @@ db.transaction(tx => {
         },
         null
     );
+
+    // Make Notes Table
+    tx.executeSql(
+        `CREATE TABLE IF NOT EXISTS ${notes} (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, content TEXT, dateAdded TEXT, dateModified TEXT, password TEXT)`
+    )
 
 })
 

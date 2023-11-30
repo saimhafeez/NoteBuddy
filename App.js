@@ -102,10 +102,8 @@ export default function App() {
             <ThemeManager>
                 <ModalProvider>
                     <SafeAreaView style={styles.app} onLayout={onLayoutRootView}>
-
                         <TabScreens />
                         <ModalComponent />
-
                     </SafeAreaView>
                 </ModalProvider>
             </ThemeManager>

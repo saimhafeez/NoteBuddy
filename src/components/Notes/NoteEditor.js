@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react'
-import { Text, View, Button, ScrollView, Platform, KeyboardAvoidingView, SafeAreaView, TextInput, TouchableOpacity, Alert, Linking, FlatList } from "react-native";
+import { Text, View, Button, ScrollView, Platform, KeyboardAvoidingView, SafeAreaView, TextInput, TouchableOpacity, Alert, Linking, FlatList, Switch } from "react-native";
 import MyText from '../MyText'
 import * as ImagePicker from 'expo-image-picker';
 import RenderHtml from 'react-native-render-html';
@@ -13,34 +13,50 @@ import { Modal } from 'react-native-paper';
 import { StyleSheet } from 'react-native';
 import { Pressable } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import { createNote, updateNote } from '../../db/NotesOperations';
+import { useNavigation } from '@react-navigation/native';
 
 global.Buffer = global.Buffer || require('buffer').Buffer
 
 const checkbox_unchecked = 'https://res.cloudinary.com/dvs8f5xki/image/upload/v1699860162/ywcme6rizv4mcazsdpxp.png'
 const checkbox_checked = 'https://res.cloudinary.com/dvs8f5xki/image/upload/v1699860158/jc1fqz3gfytsflhv2ztz.png'
 
-function NoteEditor() {
+function NoteEditor({ route, navigation }) {
 
     const { width } = useWindowDimensions();
     const { myStyles, currentTheme } = useTheme()
     const editorInputRef = useRef(null)
     const editNoteInputRef = useRef(null)
+    const passwordInputRef = useRef(null)
     const scrollViewRef = useRef(null);
+    const [lockNote, setLockNote] = useState(false)
+
+    // const navigation = useNavigation()
 
     const [editorActions, setEditorActions] = useState({
         fontWeight: 'regular',
         fontSize: 'p',
         textAlign: 'left',
         isCheckbox: false,
-
     })
 
     const [selectedInputText, setSelectedInputText] = useState({
         value: '',
         uid: '',
-        type: ''
+        type: '',
+        state: '',
     })
     const [modalVisible, setModalVisible] = useState(false);
+
+
+    const [note, setNote] = useState(route.params ? route.params : {
+        id: '',
+        title: '',
+        content: '',
+        dateAdded: new Date().toISOString(),
+        dateModified: new Date().toISOString(),
+        password: ''
+    })
 
     // {
     //     html: `
@@ -63,9 +79,7 @@ function NoteEditor() {
     //   `
     // }
 
-    const [source, setSource] = useState({
-        html: ``
-    });
+    // const [source, setSource] = useState();
 
     const pickImage = async () => {
         let result = await ImagePicker.launchImageLibraryAsync({
@@ -88,9 +102,9 @@ function NoteEditor() {
                 type: `${result.assets[0].uri.split("/")[result.assets[0].uri.split("/").length - 1].split(".")[0]}/${result.assets[0].uri.split(".")[1]}`,
                 name: `${result.assets[0].uri.split("/")[result.assets[0].uri.split("/").length - 1].split(".")[0]}.${result.assets[0].uri.split(".")[1]}`
             }).then((imageSource) => {
-                setSource(pre => ({
+                setNote(pre => ({
                     ...pre,
-                    html: pre.html + `
+                    content: pre.content + `
                     <a href='#${uid}_image#' style='text-decoration: none; color: black; margin:0px; padding:0px'>    
                         <img src='${imageSource.url}' loading="lazy" />
                     </a>`
@@ -110,11 +124,13 @@ function NoteEditor() {
 
             const type = href.split('#')[1].split('_')[1]
 
-            console.log(seleted_uid, type);
+            // console.log(seleted_uid, type);
 
             // scrapping
 
-            const chunks_unfiltered = source.html.split('</a>');
+            const chunks_unfiltered = note.content.split('</a>');
+
+            console.log('chunks_unfiltered', chunks_unfiltered);
 
             // removes last element since it will be empty always
             chunks_unfiltered.pop()
@@ -122,7 +138,7 @@ function NoteEditor() {
             // iterating over the remaining
             chunks_unfiltered.map((chunk, index) => {
 
-                console.log(index, chunk);
+                // console.log(index, chunk);
 
                 const uid = chunk.split('#')[1].split('_')[0]
 
@@ -130,21 +146,31 @@ function NoteEditor() {
 
                 // console.log('value', value[2].split('</')[0].trim());
 
-
                 // console.log(index, uid);
 
                 if (uid === seleted_uid) {
 
-                    console.log(value);
+                    // console.log(value);
+                    if (type === 'checkbox') {
 
-                    setModalVisible(true);
+                        const _source = chunk.split('src=')[1].split(' ')[0];
 
-                    setSelectedInputText({
-                        value,
-                        uid,
-                        type
-                    })
+                        setModalVisible(true);
+                        setSelectedInputText({
+                            value,
+                            uid,
+                            type,
+                            state: _source === checkbox_unchecked ? 'unchecked' : 'checked'
+                        })
+                    } else {
+                        setModalVisible(true);
 
+                        setSelectedInputText({
+                            value,
+                            uid,
+                            type
+                        })
+                    }
                     // editorInputRef.current.value = value
 
                 }
@@ -153,12 +179,12 @@ function NoteEditor() {
 
         } else {
         }
-        // console.log(source)
+        // console.log(note.content)
     }
 
     const editNode = (deleteNode = false) => {
         // scrapping
-        const chunks_unfiltered = source.html.split('</a>');
+        const chunks_unfiltered = note.content.split('</a>');
         // removes last element since it will be empty always
         chunks_unfiltered.pop()
         var newHTML = ''
@@ -167,21 +193,33 @@ function NoteEditor() {
             const uid = chunk.split('#')[1].split('_')[0]
             if (selectedInputText.uid === uid) {
                 if (!deleteNode) {
-                    const newChunk = `
-                    ${chunk.split('>')[0]}>${chunk.split('>')[1]}>
-                    ${editNoteInputRef.current.value}
-                    </p>
-                    </a>
-                    `
-                    newHTML = `${newHTML} ${newChunk}`
+                    if (selectedInputText.type === 'checkbox') {
+
+                        const source = chunk.split('src=')[1].split(' ')[0];
+                        console.log('source', source);
+                        const newSource = source === checkbox_checked ? checkbox_unchecked : checkbox_checked;
+                        const newChunk = chunk.replace(source, newSource)
+                        newHTML = `${newHTML} ${newChunk}
+                        </a>`
+                        console.log('newChunk', newChunk);
+                        console.log('newHTML', newHTML);
+                    } else {
+                        const newChunk = `
+                        ${chunk.split('>')[0]}>${chunk.split('>')[1]}>
+                        ${editNoteInputRef.current.value}
+                        </p>
+                        </a>
+                        `
+                        newHTML = `${newHTML} ${newChunk}`
+                    }
                 }
             } else {
                 newHTML = `${newHTML} ${chunk} </a>`
             }
         })
-        setSource((pre) => ({
+        setNote((pre) => ({
             ...pre,
-            html: newHTML
+            content: newHTML
         }))
         setSelectedInputText({
             value: '',
@@ -235,18 +273,63 @@ function NoteEditor() {
         </a>`
         }
 
-        setSource((pre) => ({
+        setNote((pre) => ({
             ...pre,
-            html: pre.html + dataNode
+            content: pre.content + dataNode
         }))
         editorInputRef.current.clear()
+    }
+
+    const makeNote = () => {
+        setSelectedInputText(pre => ({
+            ...pre,
+            value: 'Enter Title',
+            type: 'addNote'
+        }))
+        setModalVisible(true)
+
+    }
+
+    const saveToDB = () => {
+        // createNote()
+        const data = {
+            title: editNoteInputRef.current.value,
+            content: note.content,
+            dateAdded: note.dateAdded,
+            dateModified: note.dateModified,
+            password: passwordInputRef.current && passwordInputRef.current.value || null,
+        }
+        console.log(data);
+        createNote(data).then((result) => {
+            console.log('result', result);
+            setModalVisible(false)
+            navigation.goBack()
+        })
+    }
+
+    const updateToDB = () => {
+        // createNote()
+        const data = {
+            id: note.id,
+            title: note.title,
+            content: note.content,
+            dateAdded: note.dateAdded,
+            dateModified: new Date().toISOString(),
+            password: note.password
+        }
+        // console.log(data);
+        updateNote(data).then((result) => {
+            console.log('result', result);
+            setModalVisible(false)
+            navigation.goBack()
+        })
     }
 
     return (
         <SafeAreaView
             style={{ flex: 1, backgroundColor: currentTheme.Background }}>
             <ScrollView
-                style={{ padding: 10 }}
+                style={{ paddingHorizontal: 10 }}
                 ref={scrollViewRef}
                 onContentSizeChange={() => scrollViewRef.current.scrollToEnd({ animated: true })}
                 onLayout={() => scrollViewRef.current.scrollToEnd({ animated: true })}
@@ -254,7 +337,9 @@ function NoteEditor() {
                 <RenderHtml
                     renderersProps={renderersProps}
                     contentWidth={width}
-                    source={source.html === '' ? { html: '<p>Your Content will display here</p>' } : source}
+                    source={note.content === '' ? { html: '<p>Your Content will display here</p>' } : {
+                        html: note.content
+                    }}
                     enableExperimentalMarginCollapsing={true}
                 />
             </ScrollView>
@@ -274,10 +359,10 @@ function NoteEditor() {
                     </TouchableOpacity>
                 </View>
 
-                <View style={{ display: 'flex', flexDirection: 'row' }}>
-                    <TouchableOpacity style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 5, borderRadius: 5, backgroundColor: `rgba(${hexToRbg(currentTheme.TaskItemContainerBackgroundColor)},1)` }}>
-                        <MyText style={{ fontWeight: 'bold', color: currentTheme.linkColor }}>Save</MyText>
-                        <MyIcon iconPack='MaterialCommunityIcons' name='note-plus-outline' color={currentTheme.linkColor} />
+                <View style={{ display: 'flex', flexDirection: 'row', gap: 2 }}>
+                    <TouchableOpacity style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 5, borderRadius: 5, backgroundColor: 'black' }} onPress={() => note.id === '' ? makeNote() : updateToDB()}>
+                        <MyText style={{ fontWeight: 'bold', color: 'white' }}>{note.id === '' ? 'Done' : 'Save'}</MyText>
+                        <MyIcon iconPack='MaterialCommunityIcons' name='note-plus-outline' color={'white'} />
                     </TouchableOpacity>
                     <FlatList
                         keyboardShouldPersistTaps="always"
@@ -438,7 +523,18 @@ function NoteEditor() {
                         <View
                             style={[styles.modalView, { backgroundColor: currentTheme.bottomModalBackground }]}>
 
-                            <View style={[myStyles.input, myStyles.flexRowWithGap, { alignItems: 'center' }]}>
+                            {selectedInputText.type === 'addNote' && <View style={[myStyles.flexRowWithGap, { justifyContent: "flex-end", alignItems: "center" }]}>
+                                <MyText>Lock Note</MyText>
+                                <Switch
+                                    trackColor={{ false: '#5b6569', true: '#81b0ff' }}
+                                    thumbColor={lockNote ? currentTheme.linkColor : '#1d2021'}
+                                    ios_backgroundColor="#3e3e3e"
+                                    onValueChange={() => setLockNote(pre => !pre)}
+                                    value={lockNote}
+                                />
+                            </View>}
+
+                            {selectedInputText.type !== 'checkbox' && <View style={[myStyles.input, myStyles.flexRowWithGap, { alignItems: 'center' }]}>
                                 <TextInput
                                     // value={}
                                     placeholder={selectedInputText.value}
@@ -447,18 +543,42 @@ function NoteEditor() {
                                     multiline
                                     style={[{ flex: 1 }]}
                                 />
-                            </View>
+                            </View>}
+
+                            {selectedInputText.type === 'addNote' && lockNote &&
+                                <View>
+                                    <View style={[myStyles.input, myStyles.flexRowWithGap, { alignItems: 'center' }]}>
+                                        <TextInput
+                                            // value={}
+                                            placeholder={'Enter Password'}
+                                            textContentType='none'
+                                            keyboardType='visible-password'
+                                            ref={passwordInputRef}
+                                            onChangeText={text => passwordInputRef.current.value = text}
+                                            multiline
+                                            style={[{ flex: 1 }]}
+                                        />
+                                    </View>
+
+                                </View>
+                            }
 
                             <View style={[myStyles.flexRowWithGap, { justifyContent: 'flex-end' }]}>
 
-                                <TouchableOpacity onPress={() => editNode(true)} style={[myStyles.button, { backgroundColor: currentTheme.linkColorDanger }]}>
+                                {selectedInputText.type !== 'addNote' && <TouchableOpacity onPress={() => editNode(true)} style={[myStyles.button, { backgroundColor: currentTheme.linkColorDanger }]}>
                                     <MyText style={{ color: 'white' }}>Delete</MyText>
                                 </TouchableOpacity>
+                                }
 
-                                <TouchableOpacity style={[myStyles.button]} onPress={() => editNode(false)}>
+                                {selectedInputText.type !== 'checkbox' && <TouchableOpacity style={[myStyles.button]} onPress={() => selectedInputText.type !== 'addNote' ? editNode(false) : saveToDB()}>
                                     <MyText>Save</MyText>
-                                </TouchableOpacity>
+                                </TouchableOpacity>}
 
+                                {selectedInputText.type === 'checkbox' &&
+                                    <TouchableOpacity style={[myStyles.button]} onPress={() => editNode(false)}>
+                                        <MyText>{selectedInputText.state && selectedInputText.state === 'checked' ? 'Mark as Undone' : 'Mark as Done'}</MyText>
+                                    </TouchableOpacity>
+                                }
                             </View>
                         </View>
                     </KeyboardAvoidingView>

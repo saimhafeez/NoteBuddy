@@ -12,7 +12,8 @@ import { TwentyFourHoursFormat } from "../utils/TwentyFourHoursFormat";
 import { useUiRefresh } from "../context/UiRefreshContext";
 import uuid from "react-native-uuid";
 import { useNavigation } from "@react-navigation/native";
-
+import { TaskSymbols } from "../utils/TaskSymbols";
+import lodash from "lodash";
 
 
 
@@ -34,6 +35,12 @@ function Tasks() {
         }
     })
 
+    const [filter, setFilter] = useState({
+        sort: "asc",
+        filterBy: {},
+        filterByType: ""
+    })
+
     useEffect(() => {
         setMyTasks({
             isLoading: true,
@@ -46,7 +53,26 @@ function Tasks() {
         })
         getTodos().then((results) => {
 
-            // console.log('results', results[3].task.schedule)
+            console.log('results', results)
+
+            // const filteredResults = results.filter((task) => task.symbol === )
+
+            const a = {
+                price: 40,
+                name: 'socks'
+            }
+
+            const c = {
+                price: 40,
+                name: 'socks'
+            }
+
+            const b = {
+                price: 400,
+                name: 'jeans'
+            }
+
+            console.log(lodash.isEqual(a, c));
 
             for (const result of results) {
 
@@ -98,10 +124,54 @@ function Tasks() {
         })
     }, [taskMarkChanged]);
 
+    const changeFilter = (filterByType, _data) => {
+        if (filter.filterByType === filterByType && filter.filterBy.name === _data.name && filter.filterBy.iconPack === _data.iconPack && filter.filterBy.color === _data.color) {
+            setFilter(pre => ({ ...pre, filterBy: {}, filterByType: "" }))
+        } else {
+            setFilter(pre => ({ ...pre, filterBy: _data, filterByType: filterByType }))
+        }
+    }
+
     return (
         <View
             style={{ flex: 1, backgroundColor: currentTheme.Background, padding: 10, position: 'relative' }}
         >
+
+            <View style={[myStyles.flexRowWithGap, { justifyContent: 'space-between', alignItems: 'center' }]}>
+
+
+            </View>
+
+            <View style={[myStyles.input, { height: 60 }]}>
+                <ScrollView
+                    horizontal
+                    contentContainerStyle={{ gap: 10 }}
+                >
+                    <View style={[myStyles.flexRowWithGap, { alignItems: 'center', padding: 3, borderWidth: 2, borderColor: filter.filterByType === 'flag' ? currentTheme.linkColor : currentTheme.newTaskIconColor, borderRadius: 6 }]}>
+                        <MyText style={{ fontWeight: 'bold' }}>Filter by Flag</MyText>
+
+                        {TaskSymbols.flags.map((_data, index) => {
+                            return <TouchableOpacity key={index} onPress={() => changeFilter('flag', _data)}>
+                                <MyIcon iconPack={_data.iconPack} name={_data.name} color={_data.color} size={(filter.filterBy && filter.filterBy.iconPack === _data.iconPack && filter.filterBy.name === _data.name && filter.filterBy.color === _data.color && 30) || 20} />
+                            </TouchableOpacity>
+                        })}
+
+                    </View>
+
+                    <View style={[myStyles.flexRowWithGap, { alignItems: 'center', padding: 3, borderWidth: 2, borderColor: filter.filterByType === 'progress' ? currentTheme.linkColor : currentTheme.newTaskIconColor, borderRadius: 6 }]}>
+                        <MyText style={{ fontWeight: 'bold' }}>Filter by Progress</MyText>
+
+                        {TaskSymbols.progress.map((_data, index) => {
+                            return <TouchableOpacity key={index} onPress={() => changeFilter('progress', _data)}>
+                                <MyIcon iconPack={_data.iconPack} name={_data.name} color={_data.color} size={(filter.filterBy && filter.filterBy.iconPack === _data.iconPack && filter.filterBy.name === _data.name && 30) || 20} />
+                            </TouchableOpacity>
+                        })}
+
+                    </View>
+
+                </ScrollView>
+            </View>
+
             <FlatList
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{

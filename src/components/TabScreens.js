@@ -78,7 +78,7 @@ function TabScreens() {
           component={NoteEditor}
           options={{
             // headerShown: false,
-            headerTitle: 'Add New Note'
+            headerTitle: 'Create a Note'
           }}
         />
       </Stack.Navigator>
