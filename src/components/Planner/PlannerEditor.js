@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Text,
   View,
@@ -34,6 +34,16 @@ import Animated, {
 } from "react-native-reanimated";
 import { createNote, updateNote } from "../../db/NotesOperations";
 import { useNavigation } from "@react-navigation/native";
+import {
+  fetchDocumentById,
+  getAllPlans,
+  getCurrentUserEmail,
+  storeDataInRealtimeDatabase,
+  updatePlanById,
+} from "../../firebase";
+import { getDatabase, ref, onValue } from "firebase/database";
+import _ from "lodash";
+import { useIsFocused } from "@react-navigation/native";
 
 global.Buffer = global.Buffer || require("buffer").Buffer;
 
@@ -42,14 +52,17 @@ const checkbox_unchecked =
 const checkbox_checked =
   "https://res.cloudinary.com/dvs8f5xki/image/upload/v1699860158/jc1fqz3gfytsflhv2ztz.png";
 
-function NoteEditor({ route, navigation }) {
+function PlannerEditor({ route, navigation }) {
+  const isFocused = useIsFocused();
+
   const { width } = useWindowDimensions();
   const { myStyles, currentTheme } = useTheme();
   const editorInputRef = useRef(null);
   const editNoteInputRef = useRef(null);
-  const passwordInputRef = useRef(null);
+  const emailsInputRef = useRef(null);
   const scrollViewRef = useRef(null);
-  const [lockNote, setLockNote] = useState(false);
+  const [shareNote, setShareNote] = useState(false);
+  const [enableLiveUpdate, setEnableLiveUpdate] = useState(false);
 
   // const navigation = useNavigation()
 
@@ -68,18 +81,36 @@ function NoteEditor({ route, navigation }) {
   });
   const [modalVisible, setModalVisible] = useState(false);
 
-  const [note, setNote] = useState(
-    route.params
-      ? route.params
-      : {
-          id: "",
-          title: "",
-          content: "",
-          dateAdded: new Date().toISOString(),
-          dateModified: new Date().toISOString(),
-          password: "",
-        }
-  );
+  const [plan, setPlan] = useState({
+    id: "",
+    title: "",
+    content: "",
+    dateAdded: new Date().toISOString(),
+    dateModified: new Date().toISOString(),
+    emails: "",
+    currentEditors: [],
+  });
+
+  const populatePlan = async () => {
+    const _plan = await fetchDocumentById(route.params.id);
+    // console.log('plan --> ', _plan);
+
+    const cEmail = getCurrentUserEmail();
+
+    if (!_plan.currentEditors.includes(cEmail)) {
+      _plan.currentEditors = [..._plan.currentEditors, cEmail];
+    }
+
+    console.log("_plan", _plan);
+
+    setPlan(_plan);
+  };
+
+  // useEffect(() => {
+
+  //     route.params && populatePlan()
+
+  // }, [route.params])
 
   // {
   //     html: `
@@ -132,7 +163,7 @@ function NoteEditor({ route, navigation }) {
             [result.assets[0].uri.split("/").length - 1].split(".")[0]
         }.${result.assets[0].uri.split(".")[1]}`,
       }).then((imageSource) => {
-        setNote((pre) => ({
+        setPlan((pre) => ({
           ...pre,
           content:
             pre.content +
@@ -160,9 +191,9 @@ function NoteEditor({ route, navigation }) {
 
       // scrapping
 
-      const chunks_unfiltered = note.content.split("</a>");
+      const chunks_unfiltered = plan.content.split("</a>");
 
-      console.log("chunks_unfiltered", chunks_unfiltered);
+      // console.log('chunks_unfiltered', chunks_unfiltered);
 
       // removes last element since it will be empty always
       chunks_unfiltered.pop();
@@ -205,12 +236,12 @@ function NoteEditor({ route, navigation }) {
       });
     } else {
     }
-    // console.log(note.content)
+    // console.log(plan.content)
   }
 
   const editNode = (deleteNode = false) => {
     // scrapping
-    const chunks_unfiltered = note.content.split("</a>");
+    const chunks_unfiltered = plan.content.split("</a>");
     // removes last element since it will be empty always
     chunks_unfiltered.pop();
     var newHTML = "";
@@ -221,7 +252,7 @@ function NoteEditor({ route, navigation }) {
         if (!deleteNode) {
           if (selectedInputText.type === "checkbox") {
             const source = chunk.split("src=")[1].split(" ")[0];
-            console.log("source", source);
+            // console.log('source', source);
             const newSource =
               source === checkbox_checked
                 ? checkbox_unchecked
@@ -229,8 +260,8 @@ function NoteEditor({ route, navigation }) {
             const newChunk = chunk.replace(source, newSource);
             newHTML = `${newHTML} ${newChunk}
                         </a>`;
-            console.log("newChunk", newChunk);
-            console.log("newHTML", newHTML);
+            // console.log('newChunk', newChunk);
+            // console.log('newHTML', newHTML);
           } else {
             const newChunk = `
                         ${chunk.split(">")[0]}>${chunk.split(">")[1]}>
@@ -245,7 +276,7 @@ function NoteEditor({ route, navigation }) {
         newHTML = `${newHTML} ${chunk} </a>`;
       }
     });
-    setNote((pre) => ({
+    setPlan((pre) => ({
       ...pre,
       content: newHTML,
     }));
@@ -328,7 +359,7 @@ function NoteEditor({ route, navigation }) {
         </a>`;
     }
 
-    setNote((pre) => ({
+    setPlan((pre) => ({
       ...pre,
       content: pre.content + dataNode,
     }));
@@ -345,43 +376,174 @@ function NoteEditor({ route, navigation }) {
   };
 
   const saveToDB = () => {
-    // createNote()
+    const emails = [getCurrentUserEmail()];
+    if (emailsInputRef.current) {
+      const _emails = emailsInputRef.current.value.split(",");
+
+      _emails.forEach((item) => {
+        emails.push(item.trim());
+      });
+    }
+
     const data = {
       title: editNoteInputRef.current.value,
-      content: note.content,
-      dateAdded: note.dateAdded,
-      dateModified: note.dateModified,
-      password:
-        (passwordInputRef.current && passwordInputRef.current.value) || null,
+      content: plan.content,
+      dateAdded: plan.dateAdded,
+      dateModified: plan.dateModified,
+      emails: emails,
+      currentEditors: [],
     };
-    console.log(data);
-    createNote(data).then((result) => {
-      console.log("result", result);
+    storeDataInRealtimeDatabase(data).then((result) => {
+      // console.log('result', result);
       setModalVisible(false);
       navigation.goBack();
     });
   };
+
+  const debouncedLiveUpdates = _.debounce(() => {
+    updateToDB();
+  }, 1000);
+
+  // useEffect(() => {
+  //     const unsubscribe = navigation.addListener("focus", () => {
+
+  //         const dbRef = ref(getDatabase(), 'plans');
+  //         const plansListener = onValue(dbRef, (snapshot) => {
+  //             debouncedLiveUpdates();
+  //         });
+
+  //         return () => {
+  //             plansListener();
+  //         };
+  //     });
+
+  //     return unsubscribe;
+  // }, [navigation, debouncedLiveUpdates]);
+
+  useEffect(() => {
+    if (plan.content !== "" && enableLiveUpdate) {
+      updateToDB();
+    }
+  }, [plan.content]);
 
   const updateToDB = () => {
     // createNote()
     const data = {
-      id: note.id,
-      title: note.title,
-      content: note.content,
-      dateAdded: note.dateAdded,
+      title: plan.title,
+      content: plan.content,
+      dateAdded: plan.dateAdded,
       dateModified: new Date().toISOString(),
-      password: note.password,
+      emails: plan.emails,
+      currentEditors: plan.currentEditors,
     };
-    // console.log(data);
-    updateNote(data).then((result) => {
-      console.log("result", result);
-      setModalVisible(false);
-      navigation.goBack();
-    });
+    console.log("----------------------------");
+    console.log(data);
+    console.log("----------------------------");
+
+    updatePlanById(route.params.id, data);
   };
+
+  const oneTime = async () => {
+    const _plan = await fetchDocumentById(route.params.id);
+    const cEmail = getCurrentUserEmail();
+    if (_plan.currentEditors) {
+      _plan.currentEditors = [..._plan.currentEditors, cEmail];
+    } else {
+      _plan.currentEditors = [cEmail];
+    }
+    updatePlanById(route.params.id, _plan);
+  };
+
+  const debouncedFetchPlans = _.debounce(() => {
+    route.params && populatePlan();
+  }, 1000);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      const dbRef = ref(getDatabase(), "plans");
+      const plansListener = onValue(dbRef, (snapshot) => {
+        console.log("update");
+        debouncedFetchPlans();
+      });
+
+      return () => {
+        plansListener();
+      };
+    });
+
+    return unsubscribe;
+  }, [navigation, debouncedFetchPlans]);
+
+  useEffect(() => {
+    oneTime();
+    return async () => {
+      const _plan = await fetchDocumentById(route.params.id);
+      _plan.currentEditors = _plan.currentEditors.filter(
+        (email) => email !== getCurrentUserEmail()
+      );
+      updatePlanById(route.params.id, _plan);
+    };
+  }, [navigation]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: currentTheme.Background }}>
+      <View
+        style={{
+          paddingVertical: 10,
+          paddingHorizontal: 5,
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+        }}
+      >
+        <FlatList
+          horizontal
+          contentContainerStyle={{
+            gap: 10,
+          }}
+          data={plan.currentEditors.filter(
+            (email) => email !== "system" && email !== getCurrentUserEmail()
+          )}
+          renderItem={({ item, index }) => {
+            return (
+              <View
+                style={[
+                  {
+                    alignItems: "center",
+                    paddingVertical: 5,
+                    paddingHorizontal: 10,
+                    borderWidth: 2,
+                    backgroundColor: currentTheme.newTaskIconColor,
+                    borderRadius: 15,
+                    borderColor: currentTheme.IconColor,
+                  },
+                ]}
+              >
+                <MyText>{item}</MyText>
+              </View>
+            );
+          }}
+        />
+        <View
+          style={[
+            myStyles.flexRowWithGap,
+            { justifyContent: "flex-end", alignItems: "center" },
+          ]}
+        >
+          <MyText style={{ margin: 0, padding: 0, height: 20 }}>
+            Enable Live Updates
+          </MyText>
+          <Switch
+            trackColor={{ false: "#5b6569", true: "#81b0ff" }}
+            thumbColor={enableLiveUpdate ? currentTheme.linkColor : "#1d2021"}
+            ios_backgroundColor="#3e3e3e"
+            style={{ margin: 0, padding: 0, height: 20 }}
+            onValueChange={() => setEnableLiveUpdate((pre) => !pre)}
+            value={enableLiveUpdate}
+          />
+        </View>
+      </View>
+
       <ScrollView
         style={{ paddingHorizontal: 10 }}
         ref={scrollViewRef}
@@ -394,10 +556,10 @@ function NoteEditor({ route, navigation }) {
           renderersProps={renderersProps}
           contentWidth={width}
           source={
-            note.content === ""
+            plan.content === ""
               ? { html: "<p>Your Content will display here</p>" }
               : {
-                  html: note.content,
+                  html: plan.content,
                 }
           }
           enableExperimentalMarginCollapsing={true}
@@ -433,26 +595,29 @@ function NoteEditor({ route, navigation }) {
         </View>
 
         <View style={{ display: "flex", flexDirection: "row", gap: 2 }}>
-          <TouchableOpacity
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              paddingHorizontal: 5,
-              borderRadius: 5,
-              backgroundColor: "black",
-            }}
-            onPress={() => (note.id === "" ? makeNote() : updateToDB())}
-          >
-            <MyText style={{ fontWeight: "bold", color: "white" }}>
-              {note.id === "" ? "Done" : "Save"}
-            </MyText>
-            <MyIcon
-              iconPack="MaterialCommunityIcons"
-              name="note-plus-outline"
-              color={"white"}
-            />
-          </TouchableOpacity>
+          {!enableLiveUpdate && (
+            <TouchableOpacity
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "center",
+                paddingHorizontal: 5,
+                borderRadius: 5,
+                backgroundColor: "black",
+              }}
+              onPress={() => (plan.id === "" ? makeNote() : updateToDB())}
+            >
+              <MyText style={{ fontWeight: "bold", color: "white" }}>
+                {plan.id === "" ? "Done" : "Save"}
+              </MyText>
+              <MyIcon
+                iconPack="MaterialCommunityIcons"
+                name="note-plus-outline"
+                color={"white"}
+              />
+            </TouchableOpacity>
+          )}
+
           <FlatList
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="none"
@@ -656,13 +821,15 @@ function NoteEditor({ route, navigation }) {
                       { justifyContent: "flex-end", alignItems: "center" },
                     ]}
                   >
-                    <MyText>Lock Note</MyText>
+                    <MyText>Share Note</MyText>
                     <Switch
                       trackColor={{ false: "#5b6569", true: "#81b0ff" }}
-                      thumbColor={lockNote ? currentTheme.linkColor : "#1d2021"}
+                      thumbColor={
+                        shareNote ? currentTheme.linkColor : "#1d2021"
+                      }
                       ios_backgroundColor="#3e3e3e"
-                      onValueChange={() => setLockNote((pre) => !pre)}
-                      value={lockNote}
+                      onValueChange={() => setShareNote((pre) => !pre)}
+                      value={shareNote}
                     />
                   </View>
                 )}
@@ -688,7 +855,7 @@ function NoteEditor({ route, navigation }) {
                   </View>
                 )}
 
-                {selectedInputText.type === "addNote" && lockNote && (
+                {selectedInputText.type === "addNote" && shareNote && (
                   <View>
                     <View
                       style={[
@@ -699,12 +866,12 @@ function NoteEditor({ route, navigation }) {
                     >
                       <TextInput
                         // value={}
-                        placeholder={"Enter Password"}
+                        placeholder={"Enter Emails (Seperated by commas)"}
                         textContentType="none"
-                        keyboardType="visible-password"
-                        ref={passwordInputRef}
+                        keyboardType="default"
+                        ref={emailsInputRef}
                         onChangeText={(text) =>
-                          (passwordInputRef.current.value = text)
+                          (emailsInputRef.current.value = text)
                         }
                         multiline
                         style={[{ flex: 1 }]}
@@ -805,4 +972,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default NoteEditor;
+export default PlannerEditor;
