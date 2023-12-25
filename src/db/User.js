@@ -1,46 +1,11 @@
 import * as SQLite from "expo-sqlite";
 import db, { notes } from "./Connection";
 
-export const createNote = ({
-  title,
-  content,
-  dateAdded,
-  dateModified,
-  password,
-}) => {
+export const getLoginStatus = () => {
   return new Promise((resolve, reject) => {
     db.transaction((tx) => {
       tx.executeSql(
-        `INSERT INTO ${notes} (title, content, dateAdded, dateModified, password) VALUES (?, ?, ?, ?, ?)`,
-        [title, content, dateAdded, dateModified, password],
-        (_, results) => {
-          if (results.rowsAffected > 0) {
-            // Data was successfully inserted, now retrieve the inserted data
-            tx.executeSql(
-              `SELECT * FROM ${notes} WHERE id = last_insert_rowid()`,
-              [],
-              (_, { rows }) => {
-                const insertedData = rows.item(0);
-                resolve(insertedData); // Resolve the Promise with the inserted data
-              }
-            );
-          } else {
-            reject(new Error("Insert failed"));
-          }
-        },
-        (_, error) => {
-          reject(error); // Reject the Promise with the database error
-        }
-      );
-    });
-  });
-};
-
-export const getNotes = () => {
-  return new Promise((resolve, reject) => {
-    db.transaction((tx) => {
-      tx.executeSql(
-        `SELECT * FROM ${notes}`,
+        `SELECT * FROM user`,
         [],
         (_, results) => {
           // const data = [];
@@ -52,7 +17,36 @@ export const getNotes = () => {
           //         task: JSON.parse(task)
           //     })
           // }
-          resolve(results.rows._array);
+          resolve(results.rows._array[0]);
+        },
+        (_, error) => {
+          reject(error); // Reject the Promise with the database error
+        }
+      );
+    });
+  });
+};
+
+export const setCurrentUser = ({ name, email, password }) => {
+  return new Promise((resolve, reject) => {
+    db.transaction((tx) => {
+      tx.executeSql(
+        `INSERT into user SET name = ?, email = ?, password = ?`,
+        [name, email, password],
+        (_, results) => {
+          if (results.rowsAffected > 0) {
+            // Data was successfully updated, now retrieve the updated data
+            tx.executeSql(
+              `SELECT * FROM user WHERE id = ?`,
+              [id],
+              (_, { rows }) => {
+                const updatedData = rows.item(0);
+                resolve(updatedData); // Resolve the Promise with the updated data
+              }
+            );
+          } else {
+            reject(new Error("Update failed or no matching ID found"));
+          }
         },
         (_, error) => {
           reject(error); // Reject the Promise with the database error

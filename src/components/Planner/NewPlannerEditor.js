@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Text,
   View,
@@ -34,6 +34,15 @@ import Animated, {
 } from "react-native-reanimated";
 import { createNote, updateNote } from "../../db/NotesOperations";
 import { useNavigation } from "@react-navigation/native";
+import {
+  fetchDocumentById,
+  getAllPlans,
+  getCurrentUserEmail,
+  storeDataInRealtimeDatabase,
+  updatePlanById,
+} from "../../firebase";
+import { getDatabase, ref, onValue } from "firebase/database";
+import _ from "lodash";
 
 global.Buffer = global.Buffer || require("buffer").Buffer;
 
@@ -42,14 +51,14 @@ const checkbox_unchecked =
 const checkbox_checked =
   "https://res.cloudinary.com/dvs8f5xki/image/upload/v1699860158/jc1fqz3gfytsflhv2ztz.png";
 
-function NoteEditor({ route, navigation }) {
+function NewPlannerEditor({ route, navigation }) {
   const { width } = useWindowDimensions();
   const { myStyles, currentTheme } = useTheme();
   const editorInputRef = useRef(null);
   const editNoteInputRef = useRef(null);
-  const passwordInputRef = useRef(null);
+  const emailsInputRef = useRef(null);
   const scrollViewRef = useRef(null);
-  const [lockNote, setLockNote] = useState(false);
+  const [shareNote, setShareNote] = useState(false);
 
   // const navigation = useNavigation()
 
@@ -66,43 +75,18 @@ function NoteEditor({ route, navigation }) {
     type: "",
     state: "",
   });
+
   const [modalVisible, setModalVisible] = useState(false);
 
-  const [note, setNote] = useState(
-    route.params
-      ? route.params
-      : {
-          id: "",
-          title: "",
-          content: "",
-          dateAdded: new Date().toISOString(),
-          dateModified: new Date().toISOString(),
-          password: "",
-        }
-  );
-
-  // {
-  //     html: `
-  // <a href='#' style='text-decoration: none; color: black'>
-  // <p style="text-align: center;">
-  // Hi <strong>Saim 1</strong>
-  // you have news today!
-  // </p>
-  // <p style="font-size: 1rem">
-  // Hi <strong>Saim 1</strong>
-  // you have news today!
-  // </p>
-  // </a>
-  // <a href='image'>
-  // <img src='https://images.hdqwalls.com/wallpapers/bthumb/red-hood-evolution-5k-ne.jpg'/>
-  // </a>
-  // <a href='https://www.google.com'>
-  // <p>saim</p>
-  // </a>
-  //   `
-  // }
-
-  // const [source, setSource] = useState();
+  const [plan, setPlan] = useState({
+    id: "",
+    title: "",
+    content: "",
+    dateAdded: new Date().toISOString(),
+    dateModified: new Date().toISOString(),
+    emails: "",
+    currentEditors: [],
+  });
 
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
@@ -132,7 +116,7 @@ function NoteEditor({ route, navigation }) {
             [result.assets[0].uri.split("/").length - 1].split(".")[0]
         }.${result.assets[0].uri.split(".")[1]}`,
       }).then((imageSource) => {
-        setNote((pre) => ({
+        setPlan((pre) => ({
           ...pre,
           content:
             pre.content +
@@ -160,9 +144,9 @@ function NoteEditor({ route, navigation }) {
 
       // scrapping
 
-      const chunks_unfiltered = note.content.split("</a>");
+      const chunks_unfiltered = plan.content.split("</a>");
 
-      console.log("chunks_unfiltered", chunks_unfiltered);
+      // console.log('chunks_unfiltered', chunks_unfiltered);
 
       // removes last element since it will be empty always
       chunks_unfiltered.pop();
@@ -205,12 +189,12 @@ function NoteEditor({ route, navigation }) {
       });
     } else {
     }
-    // console.log(note.content)
+    // console.log(plan.content)
   }
 
   const editNode = (deleteNode = false) => {
     // scrapping
-    const chunks_unfiltered = note.content.split("</a>");
+    const chunks_unfiltered = plan.content.split("</a>");
     // removes last element since it will be empty always
     chunks_unfiltered.pop();
     var newHTML = "";
@@ -221,7 +205,7 @@ function NoteEditor({ route, navigation }) {
         if (!deleteNode) {
           if (selectedInputText.type === "checkbox") {
             const source = chunk.split("src=")[1].split(" ")[0];
-            console.log("source", source);
+            // console.log('source', source);
             const newSource =
               source === checkbox_checked
                 ? checkbox_unchecked
@@ -229,8 +213,8 @@ function NoteEditor({ route, navigation }) {
             const newChunk = chunk.replace(source, newSource);
             newHTML = `${newHTML} ${newChunk}
                         </a>`;
-            console.log("newChunk", newChunk);
-            console.log("newHTML", newHTML);
+            // console.log('newChunk', newChunk);
+            // console.log('newHTML', newHTML);
           } else {
             const newChunk = `
                         ${chunk.split(">")[0]}>${chunk.split(">")[1]}>
@@ -245,7 +229,7 @@ function NoteEditor({ route, navigation }) {
         newHTML = `${newHTML} ${chunk} </a>`;
       }
     });
-    setNote((pre) => ({
+    setPlan((pre) => ({
       ...pre,
       content: newHTML,
     }));
@@ -328,7 +312,7 @@ function NoteEditor({ route, navigation }) {
         </a>`;
     }
 
-    setNote((pre) => ({
+    setPlan((pre) => ({
       ...pre,
       content: pre.content + dataNode,
     }));
@@ -345,36 +329,25 @@ function NoteEditor({ route, navigation }) {
   };
 
   const saveToDB = () => {
-    // createNote()
+    const emails = [getCurrentUserEmail()];
+    if (emailsInputRef.current) {
+      const _emails = emailsInputRef.current.value.split(",");
+
+      _emails.forEach((item) => {
+        emails.push(item.trim().toLowerCase());
+      });
+    }
+
     const data = {
       title: editNoteInputRef.current.value,
-      content: note.content,
-      dateAdded: note.dateAdded,
-      dateModified: note.dateModified,
-      password:
-        (passwordInputRef.current && passwordInputRef.current.value) || null,
+      content: plan.content,
+      dateAdded: plan.dateAdded,
+      dateModified: plan.dateModified,
+      emails: emails,
+      currentEditors: ["system"],
     };
-    console.log(data);
-    createNote(data).then((result) => {
-      console.log("result", result);
-      setModalVisible(false);
-      navigation.goBack();
-    });
-  };
-
-  const updateToDB = () => {
-    // createNote()
-    const data = {
-      id: note.id,
-      title: note.title,
-      content: note.content,
-      dateAdded: note.dateAdded,
-      dateModified: new Date().toISOString(),
-      password: note.password,
-    };
-    // console.log(data);
-    updateNote(data).then((result) => {
-      console.log("result", result);
+    storeDataInRealtimeDatabase(data).then((result) => {
+      // console.log('result', result);
       setModalVisible(false);
       navigation.goBack();
     });
@@ -382,6 +355,37 @@ function NoteEditor({ route, navigation }) {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: currentTheme.Background }}>
+      <View style={{ paddingVertical: 10, paddingHorizontal: 5 }}>
+        <FlatList
+          horizontal
+          contentContainerStyle={{
+            gap: 10,
+          }}
+          data={plan.currentEditors.filter(
+            (email) => email !== "system" && email !== getCurrentUserEmail()
+          )}
+          renderItem={({ item, index }) => {
+            return (
+              <View
+                style={[
+                  {
+                    alignItems: "center",
+                    paddingVertical: 5,
+                    paddingHorizontal: 10,
+                    borderWidth: 2,
+                    backgroundColor: currentTheme.newTaskIconColor,
+                    borderRadius: 15,
+                    borderColor: currentTheme.IconColor,
+                  },
+                ]}
+              >
+                <MyText style={{}}>{item}</MyText>
+              </View>
+            );
+          }}
+        />
+      </View>
+
       <ScrollView
         style={{ paddingHorizontal: 10 }}
         ref={scrollViewRef}
@@ -394,10 +398,10 @@ function NoteEditor({ route, navigation }) {
           renderersProps={renderersProps}
           contentWidth={width}
           source={
-            note.content === ""
+            plan.content === ""
               ? { html: "<p>Your Content will display here</p>" }
               : {
-                  html: note.content,
+                  html: plan.content,
                 }
           }
           enableExperimentalMarginCollapsing={true}
@@ -442,10 +446,10 @@ function NoteEditor({ route, navigation }) {
               borderRadius: 5,
               backgroundColor: "black",
             }}
-            onPress={() => (note.id === "" ? makeNote() : updateToDB())}
+            onPress={() => (plan.id === "" ? makeNote() : updateToDB())}
           >
             <MyText style={{ fontWeight: "bold", color: "white" }}>
-              {note.id === "" ? "Done" : "Save"}
+              {plan.id === "" ? "Done" : "Save"}
             </MyText>
             <MyIcon
               iconPack="MaterialCommunityIcons"
@@ -656,13 +660,15 @@ function NoteEditor({ route, navigation }) {
                       { justifyContent: "flex-end", alignItems: "center" },
                     ]}
                   >
-                    <MyText>Lock Note</MyText>
+                    <MyText>Share Note</MyText>
                     <Switch
                       trackColor={{ false: "#5b6569", true: "#81b0ff" }}
-                      thumbColor={lockNote ? currentTheme.linkColor : "#1d2021"}
+                      thumbColor={
+                        shareNote ? currentTheme.linkColor : "#1d2021"
+                      }
                       ios_backgroundColor="#3e3e3e"
-                      onValueChange={() => setLockNote((pre) => !pre)}
-                      value={lockNote}
+                      onValueChange={() => setShareNote((pre) => !pre)}
+                      value={shareNote}
                     />
                   </View>
                 )}
@@ -688,7 +694,7 @@ function NoteEditor({ route, navigation }) {
                   </View>
                 )}
 
-                {selectedInputText.type === "addNote" && lockNote && (
+                {selectedInputText.type === "addNote" && shareNote && (
                   <View>
                     <View
                       style={[
@@ -699,12 +705,12 @@ function NoteEditor({ route, navigation }) {
                     >
                       <TextInput
                         // value={}
-                        placeholder={"Enter Password"}
+                        placeholder={"Enter Emails (Seperated by commas)"}
                         textContentType="none"
-                        keyboardType="visible-password"
-                        ref={passwordInputRef}
+                        keyboardType="default"
+                        ref={emailsInputRef}
                         onChangeText={(text) =>
-                          (passwordInputRef.current.value = text)
+                          (emailsInputRef.current.value = text)
                         }
                         multiline
                         style={[{ flex: 1 }]}
@@ -805,4 +811,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default NoteEditor;
+export default NewPlannerEditor;
